@@ -92,11 +92,9 @@ class MECPECModel(nn.Module):
         self.emotion_mlp_cf = EmotionMLP(2 * self.gcn_dim, len(set(EMOTION_MAPPING[data_name].values())))
         self.cause_mlp = CauseMLP(2 * self.gcn_dim)
 
-        # 转化为图神经网络的维度
 
         self.gat_layers = config.gat_layers
         self.graph_attention_size = int(self.gcn_dim / config.num_graph_attention_heads)
-        # 图注意力层
         self.GAT_layers = nn.ModuleList([GATLayer(meta_paths=GRAPH['hyper_meta_paths'],
                                                   in_size=self.gcn_dim, out_size=self.graph_attention_size,
                                                   layer_num_heads=config.num_graph_attention_heads) for _ in
@@ -107,7 +105,6 @@ class MECPECModel(nn.Module):
         # self.gru_utterance = nn.GRU(self.gcn_dim, self.gcn_dim, batch_first=False)
         # self.hgc_layers = nn.ModuleList([HeteroGraphConvLayer(in_size=self.gcn_dim, out_size=self.graph_attention_size,
         #                                           layer_num_heads=config.num_graph_attention_heads) for _ in range(self.gat_layers)])
-        # 情绪原因配对
         self.ec_pairing = PairNN(2 * self.gcn_dim, config.pos_emb_dim, config.rel_pos_k)
 
         self.mask_logits = nn.ModuleDict({
@@ -155,7 +152,6 @@ class MECPECModel(nn.Module):
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
         batch_size = input_ids.size(0)
 
-        # 清理显存的函数
         def clear_cache(*vars):
             for var in vars:
                 del var
@@ -174,18 +170,6 @@ class MECPECModel(nn.Module):
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
-            # outputs = self.bert(input_ids=input_ids,
-            #                 attention_mask=attention_masks,
-            #                 token_type_ids=token_type_ids)
-            # outputs = self.xl_net(input_ids=input_ids,
-            #                         attention_mask=attention_masks,
-            #                         token_type_ids=token_type_ids)
-            # B: batch size
-            # N: 对话的话语长度（根据batch进行padding）
-            # S：对话输入的序列token长度，填充至max-seq-length
-            # D: Roberta的隐藏层维度
-            # M: 这个batch的所有图的节点数之和
-            # H: 图神经网络的隐层维度
 
             sequence_outputs_h = outputs[0]  # B*S*D
             pooled_outputs = outputs[1]  # B*D
@@ -194,7 +178,6 @@ class MECPECModel(nn.Module):
             sequence_outputs_h = self._batched_index_select(sequence_outputs_h, uttr_indices, mention_ids)  # B*N*D
             sequence_outputs_h = self.linear_t(sequence_outputs_h.to(self.linear_t.weight.device))
             pooled_outputs = self.linear_t(pooled_outputs).unsqueeze(1)
-            # 清理不再使用的变量
             clear_cache(outputs)
             # pooled_outputs = torch.mean(sequence_outputs, dim=1)  # B*D
         if 'audio' in modality:
@@ -203,7 +186,6 @@ class MECPECModel(nn.Module):
             conv_audio_in = self.linear_a(conv_audio_in)
             audio_in = self.rume(audio_in, uttr_len)
             conv_audio_in = self.rume(conv_audio_in, uttr_len)
-            # 清理不再使用的变量
             clear_cache(audio_features)
         if 'video' in modality:
             conv_video_in = torch.mean(video_features, dim=1).unsqueeze(1)
@@ -211,24 +193,11 @@ class MECPECModel(nn.Module):
             conv_video_in = self.linear_v(conv_video_in)
             video_in = self.rume(video_in, uttr_len)
             conv_video_in = self.rume(conv_video_in, uttr_len)
-            # 清理不再使用的变量
             clear_cache(video_features)
 
-        # # ACME 跨模态注意力
-        # audio_mask = (uttr_indices != 0).float()
-        # featcross_t, featcross_a = self.acme(sequence_outputs_h, audio_in, audio_mask)  # audio_mask: B * S
-        # conv_featcross_t, conv_featcross_a = self.acme(pooled_outputs, conv_audio_in, audio_mask[:, 0].unsqueeze(-1))
-        #
-        # featcross_cat = torch.concat([featcross_t, featcross_a], dim=-1)
-        # sequence_outputs_h = self.drop_cat(F.relu(self.linear_cat(featcross_cat)))
-        # conv_featcross_cat = torch.concat([conv_featcross_t, conv_featcross_a], dim=-1)
-        # pooled_outputs = self.drop_cat(F.relu(self.linear_cat(conv_featcross_cat)))
-        # # 清理不再使用的变量
-        # clear_cache(featcross_t, featcross_a, conv_featcross_t, conv_featcross_a, featcross_cat, conv_featcross_cat)
-        # graph_in = self.transform(sequence_outputs_h)  # B*N*H
 
         # initialize graph nodes
-        h_dict = {'utterance_t': None, 'emotion': None, 'cause': None, 'hyperedge': None}  # 用于存储不同类型的节点特征
+        h_dict = {'utterance_t': None, 'emotion': None, 'cause': None, 'hyperedge': None}  
         if 'audio' in modality:
             h_dict = {
                 'utterance_t': None, 'utterance_a': None,
@@ -245,58 +214,21 @@ class MECPECModel(nn.Module):
         # }
         # h_dict = {'utterance_t':None,'utterance_a':None, 'utterance_v':None,
         #           'conversation_t':None,'conversation_a':None,'conversation_v':None,
-        #           'emotion':None,'cause':None} # 用于存储不同类型的节点特征
-        # 看是否需要注释
+        #           'emotion':None,'cause':None} 
+
         graph_in = sequence_outputs_h # B*N*H
         # initialize graph nodes
 
 
-        # for i in range(len(graphs)):
-        #     N = uttr_len[i]
-        #
-        #     # 切分文本多模态特征
-        #     feat_t = sequence_outputs_h[i][:N]  # (N, H)
-        #     feat_a = audio_in[i][:N] if 'audio' in modality else None  # (N, H)
-        #     feat_v = video_in[i][:N] if 'video' in modality else None  # (N, H)
-        #
-        #     global_h_i = pooled_outputs[i]  # (1, H)
-        #
-        #     # === 存入 utterance 多模态（注意按类型堆叠）===
-        #     for key, feat in {
-        #         'utterance_t': feat_t,
-        #         'utterance_a': feat_a,
-        #         'utterance_v': feat_v
-        #     }.items():
-        #         if feat is None:
-        #             continue
-        #         h_dict[key] = torch.cat([h_dict[key], feat], dim=0) if h_dict[key] is not None else feat
-        #
-        #     # === emotion & cause 模态继承文本特征 ===
-        #     for key in ['emotion', 'cause']:
-        #         h_dict[key] = torch.cat([h_dict[key], feat_t], dim=0) if h_dict[key] is not None else feat_t
-        #
-        #     # === hyperedge = [multi-modal stacked [N nodes] + global pooled] ===
-        #     global_modalities = [global_h_i]  # 默认文本
-        #     if 'audio' in modality:
-        #         global_modalities.append(global_h_i)  # 可以考虑用 conv_audio_in 的 pooled
-        #     if 'video' in modality:
-        #         global_modalities.append(global_h_i)  # 可以考虑用 conv_video_in 的 pooled
-        #     global_modalities = torch.cat(global_modalities, dim=0)  # (3, H)
-        #     hyper_f = torch.cat([feat_t, global_modalities], dim=0)  # (N+3, H)
-        #     h_dict['hyperedge'] = torch.cat([h_dict['hyperedge'], hyper_f], dim=0) if h_dict[
-        #                                                                                   'hyperedge'] is not None else hyper_f
-
         for i in range(len(graphs)):
             N = uttr_len[i]
 
-            # 切分文本多模态特征
             feat_t = sequence_outputs_h[i][:N]  # (N, H) (N,512)
             feat_a = audio_in[i][:N] if 'audio' in modality else None  # (N, H) (N, 512)
             feat_v = video_in[i][:N] if 'video' in modality else None  # (N, H)
 
             # global_h_i = pooled_outputs[i]  # (1, H) (1, 512)
 
-            # === 存入 utterance 多模态（注意按类型堆叠）===
             for key, feat in {
                 'utterance_t': feat_t,
                 'utterance_a': feat_a,
@@ -306,15 +238,13 @@ class MECPECModel(nn.Module):
                     continue
                 h_dict[key] = torch.cat([h_dict[key], feat], dim=0) if h_dict[key] is not None else feat
 
-            # === emotion & cause 模态继承文本特征 ===要改
             for key in ['emotion', 'cause']:
-                feats = [feat_t]  # 文本一定存在
+                feats = [feat_t] 
                 if 'audio' in modality and feat_a is not None:
                     feats.append(feat_a)
                 if 'video' in modality and feat_v is not None:
                     feats.append(feat_v)
 
-                # 多模态平均
                 multimodal_feat = torch.stack(feats, dim=0).mean(dim=0)  # (N, H)
 
                 h_dict[key] = torch.cat([h_dict[key], multimodal_feat], dim=0) if h_dict[
@@ -333,7 +263,7 @@ class MECPECModel(nn.Module):
             if 'video' in modality:
                 uttr_types.append('utterance_v')
             hyperedge_h_i = torch.zeros(num_hyper, feat_dim, device=feat_t.device)
-            # 模态间超边
+
             for u in range(N):
                 feats = []
                 if 'textual' in modality:
@@ -343,12 +273,9 @@ class MECPECModel(nn.Module):
                 if 'video' in modality:
                     feats.append(feat_v[u])
 
-                # 多模态平均 / concat 后线性都行，这里用 mean
                 hyperedge_h_i[u] = torch.stack(feats, dim=0).mean(dim=0)
             if self.use_llm:
-                # 先验超边（candidate / latent）
                 for hid in range(N, num_hyper - num_global):
-                    # 默认权重为 None
                     w = None
 
                     if G.in_edges(hid, etype=('emotion', 'cand_e', 'hyperedge'))[0].numel() > 0:
@@ -390,18 +317,13 @@ class MECPECModel(nn.Module):
                             elif uttr_type == 'utterance_v':
                                 utt_feats.append(feat_v[uids])
 
-                    # 如果不是 candidate/latent 超边，跳过
                     if w is None or len(uids) == 0:
                         continue
 
-                    # 计算 emotion 特征
                     emo_feat = h_dict['emotion'][emo_idx]
-                    # 计算 utterance 平均特征
                     utt_feat = torch.cat(utt_feats, dim=0).mean(dim=0)
-                    # 融合并乘上权重
                     hyperedge_h_i[hid] = 0.5 * emo_feat + 0.5 * utt_feat
 
-            # 模态内超边
             g_idx = 0
             if 'textual' in modality:
                 hyperedge_h_i[num_hyper - num_global + g_idx] = pooled_outputs[i].squeeze(0)
@@ -424,17 +346,16 @@ class MECPECModel(nn.Module):
         graph_big = dgl.batch(graphs)
 
         model_device = next(self.parameters()).device
-        graph_big = graph_big.to('cpu').to(model_device)  # 先到CPU再到目标设备
+        graph_big = graph_big.to('cpu').to(model_device)  
         h_dict = {k: v.to(model_device) for k, v in h_dict.items()}
 
-        uttr_nodes_num = int((graph_big.num_nodes() - batch_size) / 3)  # 除去对话节点的话语节点数/3，因为总共有三个类型节点，除去对话节点
+        uttr_nodes_num = int((graph_big.num_nodes() - batch_size) / 3)  
 
         for layer_num, GAT_layer in enumerate(self.GAT_layers):
             # graph_features : M * H
             graph_features = GAT_layer(graph_big, h_dict)  # M * H
             graph_features = self.ffn_layers[layer_num](graph_features.unsqueeze(1)).squeeze(1)  # M * H
 
-            # 动态按 node type 切片（安全且通用）
             node_counts = {ntype: graph_big.num_nodes(ntype) for ntype in graph_big.ntypes}
             offsets = {}
             offset = 0
@@ -443,28 +364,23 @@ class MECPECModel(nn.Module):
                 offsets[ntype] = (offset, offset + cnt)
                 offset += cnt
 
-            # 将切片结果回写到 h_dict（仅写入存在的 key）
-            # 注意：graph_big.ntypes 的顺序即为 graph_features 的 node 顺序
             for ntype in graph_big.ntypes:
                 start, end = offsets[ntype]
-                if end > start:  # 有节点
+                if end > start: 
                     feat = graph_features[start:end]
                 else:
                     feat = torch.empty((0, graph_features.size(1)), device=graph_features.device)
-                # 只更新我们关心的类型，忽略其他可能存在的类型
                 if ntype in h_dict:
                     h_dict[ntype] = feat
 
         # ================= Emotion-conditioned Counterfactual =================
-        # h_dict 已包含:
+        # h_dict:
         #   utterance_t: (sum_N, H)
         #   emotion:     (sum_N, H)
 
         sparsity_loss = 0.0
         cf_loss = 0.0
 
-        # ---------- 1. 构造 emotion-conditioned 表示 ----------
-        # 后面会对齐成 B * N * H
         fea_idx = 0
         max_uttr_num = max(uttr_len)
 
@@ -489,8 +405,6 @@ class MECPECModel(nn.Module):
             if 'video' in modality:
                 utt_feats.append(h_dict['utterance_v'][fea_idx:fea_idx + N])
 
-            # 融合多模态 utterance（用于 mask 预测）
-            # 方式 1：concat（最稳妥）
             utt_i = torch.cat(utt_feats, dim=-1)  # (N, H*num_modality)
 
             # ---------- 2. emotion-conditioned mask ----------
@@ -498,7 +412,7 @@ class MECPECModel(nn.Module):
             logits = self.mask_logits_emotion(cond_feat).squeeze(-1)  # (N,)
             base_prob = logits
             if self.use_llm:
-                # ===== prior bias（不变）=====
+                # ===== prior bias =====
                 prior_bias = torch.zeros(N, device=logits.device)
                 for t in range(N):
                     t_key = str(t + 1)
@@ -510,7 +424,7 @@ class MECPECModel(nn.Module):
                     # prior_bias[t] = max_prior - 0.5
                     prior_bias[t] = max_prior
 
-                base_prob = torch.sigmoid(logits + 0.5 * prior_bias) # 这边是先验权重
+                base_prob = torch.sigmoid(logits + 0.5 * prior_bias) 
 
             mm_gate = 1.0
             mm_count = 0
@@ -534,11 +448,9 @@ class MECPECModel(nn.Module):
             hard = (probs > 0.5).float()
             mask_i = (hard - probs).detach() + probs  # (N,)
 
-            # ---------- 3. 反事实：mask = 1 屏蔽该 utterance（所有模态） ----------
             for uttr_type in ['utterance_t', 'utterance_a', 'utterance_v']:
                 if uttr_type in h_dict_cf:
                     utt_feat_i = h_dict[uttr_type][fea_idx:fea_idx + N]
-                    # 高斯噪声（与特征尺度匹配）
                     # noise = torch.randn_like(utt_feat_i) * utt_feat_i.std(dim=0, keepdim=True).detach()
                     # utt_cf_i = utt_feat_i + 0.1 * noise * mask_i.unsqueeze(-1)
                     beta = 0.7
@@ -552,11 +464,11 @@ class MECPECModel(nn.Module):
                     # utt_cf_i = utt_feat_i * (1 - mask_i).unsqueeze(-1)
                     h_dict_cf[uttr_type][fea_idx:fea_idx + N] = utt_cf_i
 
-            # ---------- 4. padding 到 batch ----------
+            # ---------- 4. padding ~ batch ----------
             padded_mask_i = F.pad(mask_i, (0, max_uttr_num - N))
             mask_batch.append(padded_mask_i.unsqueeze(0))
 
-            # ---------- 5. sparsity（鼓励少量证据） ----------
+            # ---------- 5. sparsity ----------
             sparsity_loss += mask_i.mean()
 
             fea_idx += N
@@ -571,7 +483,6 @@ class MECPECModel(nn.Module):
             graph_features = GAT_layer(graph_big, h_dict_cf)  # M * H
             graph_features = self.ffn_layers[layer_num](graph_features.unsqueeze(1)).squeeze(1)  # M * H
 
-            # 动态按 node type 切片（安全且通用）
             node_counts = {ntype: graph_big.num_nodes(ntype) for ntype in graph_big.ntypes}
             offsets = {}
             offset = 0
@@ -580,15 +491,12 @@ class MECPECModel(nn.Module):
                 offsets[ntype] = (offset, offset + cnt)
                 offset += cnt
 
-            # 将切片结果回写到 h_dict（仅写入存在的 key）
-            # 注意：graph_big.ntypes 的顺序即为 graph_features 的 node 顺序
             for ntype in graph_big.ntypes:
                 start, end = offsets[ntype]
-                if end > start:  # 有节点
+                if end > start:  
                     feat = graph_features[start:end]
                 else:
                     feat = torch.empty((0, graph_features.size(1)), device=graph_features.device)
-                # 只更新我们关心的类型，忽略其他可能存在的类型
                 if ntype in h_dict_cf:
                     h_dict_cf[ntype] = feat
         graphs = dgl.unbatch(graph_big)
@@ -599,8 +507,8 @@ class MECPECModel(nn.Module):
         # get the output of the last GAT layer
         fea_idx = 0
         max_uttr_num = max(uttr_len)
-        gragh_h_emotion = None  # 用于存储图结构的情绪节点特征
-        gragh_h_cause = None  # 用于存储图结构的原因节点特征
+        gragh_h_emotion = None 
+        gragh_h_cause = None 
         # mask = None
 
         # delta_H = {}
@@ -611,7 +519,7 @@ class MECPECModel(nn.Module):
         #     delta_H = h_dict
 
         for i in range(len(graphs)):
-            node_num = uttr_len[i]  # M， 这里包括了一个对话的对话节点和话语节点
+            node_num = uttr_len[i] 
             graph_h_emotion_i = h_dict['emotion'][fea_idx:fea_idx + node_num]
             graph_h_emotion_i_cf = h_dict_cf['emotion'][fea_idx:fea_idx + node_num]
             padded_graph_h_emotion_i = F.pad(graph_h_emotion_i,
@@ -644,27 +552,25 @@ class MECPECModel(nn.Module):
             # else:
             #     mask = torch.cat([mask, padded_mask_i], dim=0)
 
-
-        # 筛选配对
         # em_logits = self.emotion_mlp(graph_in)
         # ca_logits = self.cause_mlp(graph_in)
-        # couples_pred, emo_caus_pos = self.ec_pairing(graph_in, graph_in) # B*(N*N) 情绪原因配对logits
+        # couples_pred, emo_caus_pos = self.ec_pairing(graph_in, graph_in) # B*(N*N) 
         em = torch.cat([graph_in, gragh_h_emotion], dim=-1)
         em_cf = torch.cat([graph_in, gragh_h_emotion_cf], dim=-1)
-        em_logits = self.emotion_mlp(torch.cat([graph_in, gragh_h_emotion], dim=-1))  # B*N*E 情绪类别logits
+        em_logits = self.emotion_mlp(torch.cat([graph_in, gragh_h_emotion], dim=-1))  # B*N*E 
         em_logits_cf = self.emotion_mlp_cf(torch.cat([graph_in, gragh_h_emotion_cf], dim=-1))
 
-        ca_logits = self.cause_mlp(torch.cat([graph_in, gragh_h_cause], dim=-1))  # B*N*1 原因类别logits
-        ca_logits_cf = self.cause_mlp(torch.cat([graph_in, gragh_h_cause_cf], dim=-1))  # B*N*1 原因类别logits
+        ca_logits = self.cause_mlp(torch.cat([graph_in, gragh_h_cause], dim=-1))  # B*N*1 
+        ca_logits_cf = self.cause_mlp(torch.cat([graph_in, gragh_h_cause_cf], dim=-1))  # B*N*1 
 
         emotion_g_h = torch.cat([graph_in, gragh_h_emotion], dim=-1)
         cause_g_h = torch.cat([graph_in, gragh_h_cause], dim=-1)
         emotion_g_h_cf = torch.cat([graph_in, gragh_h_emotion_cf], dim=-1)
         cause_g_h_cf = torch.cat([graph_in, gragh_h_cause_cf], dim=-1)
-        couples_pred, emo_caus_pos = self.ec_pairing(emotion_g_h, cause_g_h)  # B*(N*N) 情绪原因配对logits
+        couples_pred, emo_caus_pos = self.ec_pairing(emotion_g_h, cause_g_h)  # B*(N*N) 
         couples_pred_cf, _ = self.ec_pairing(emotion_g_h_cf, cause_g_h_cf)
 
-        # em_logits = self.emotion_mlp(gragh_h) # B*N*E 情绪类别logits
+        # em_logits = self.emotion_mlp(gragh_h) # B*N*E 
 
         # em_logits = em_logits - em_logits_cf
         # ca_logits = ca_logits - ca_logits_cf
@@ -693,23 +599,22 @@ class MECPECModel(nn.Module):
         slen = sequence_outputs.shape[1]
         feature_dim = sequence_outputs.size(-1)
         batch_size = sequence_outputs.size(0)
-        # 初始化一个填充张量
         doc_sents_h = get_cuda(torch.zeros(batch_size, max_uttr_len, feature_dim))
-        for i in range(sequence_outputs.size(0)):  # 对于每个batch
-            device = sequence_outputs.device  # 模型当前 GPU
+        for i in range(sequence_outputs.size(0)): 
+            device = sequence_outputs.device 
 
             sequence_outputs = sequence_outputs.to(device)
             uttr_indices = uttr_indices.to(device)
             mention_ids = mention_ids.to(device)
 
             sequence_output = sequence_outputs[i]
-            mention_num = torch.max(mention_ids[i])  # 话语数
+            mention_num = torch.max(mention_ids[i])  
             mention_index = (torch.arange(mention_num) + 1).unsqueeze(1).expand(-1, slen)  # N * S (4*138)
             mentions = mention_ids[i].unsqueeze(0).expand(mention_num, -1)  # shape:N*512
             select_metrix = (mention_index == mentions.to(mention_index.device)).float()
-            word_total_numbers = torch.sum(select_metrix, dim=-1).unsqueeze(-1).expand(-1, slen)  # 每个话语的词数
+            word_total_numbers = torch.sum(select_metrix, dim=-1).unsqueeze(-1).expand(-1, slen)  
             select_metrix = torch.where(word_total_numbers > 0, select_metrix / word_total_numbers, select_metrix)
-            uttr_h = torch.mm(select_metrix.to(device), sequence_output.to(device))  # 根据话语长度做加权平均
+            uttr_h = torch.mm(select_metrix.to(device), sequence_output.to(device))  
             doc_sents_h[i, :uttr_h.size(0), :] = uttr_h
         # dummy = uttr_indices.unsqueeze(2).expand(uttr_indices.size(0), uttr_indices.size(1), sequence_outputs.size(2))
         # doc_sents_h = sequence_outputs.gather(1, dummy)
@@ -727,14 +632,14 @@ class MECPECModel(nn.Module):
         gold_e_cpu = gold_e.cpu()
         # criterion = FocalLoss(reduction='mean', ignore_index=-1)
         criterion = FocalLoss()
-        # criterion = nn.CrossEntropyLoss(reduction='mean', ignore_index=-1)  # 为-1的值被忽略
+        # criterion = nn.CrossEntropyLoss(reduction='mean', ignore_index=-1)  
         loss_e = criterion(pred_e_cpu, gold_e_cpu)
         return loss_e
 
     def loss_pre_cau(self, pred_c, gold_c):
         uttr_len = pred_c.size(1)
         gold_c = gold_c[:, :uttr_len]
-        c_mask = gold_c != -1  # 为 -1 的位置为填充值
+        c_mask = gold_c != -1  
         pred_c = pred_c.squeeze(-1).masked_select(c_mask).cpu()
         true_c = gold_c.masked_select(c_mask).float().cpu()
         criterion = nn.BCEWithLogitsLoss(reduction='mean')
@@ -751,51 +656,17 @@ class MECPECModel(nn.Module):
         loss_couple = focal_loss_bce(couples_pred, couples_true, alpha=1, gamma=2, reduction='mean')
         return loss_couple
 
-    # def loss_pre_emo(self, pred_e, gold_e):
-    #     uttr_len = pred_e.size(1)
-    #     # 这里进行截断
-    #     gold_e = gold_e[:,:uttr_len]
-    #     gold_e = gold_e[:,:uttr_len]-1 # 计算时还是要从0-6
-    #     # 该行代码可能导致计算的不确定性，影响可复现性
-    #     # 将预测和标签移至CPU
-    #     pred_e_cpu = pred_e.permute(0, 2, 1).cpu()
-    #     gold_e_cpu = gold_e.cpu()
-    #     criterion = nn.CrossEntropyLoss(reduction='mean', ignore_index=-1) # 为-1的值被忽略
-    #     loss_e = criterion(pred_e_cpu, gold_e_cpu)
-    #     return loss_e
-
-    # def loss_pre_cau(self, pred_c, gold_c):
-    #     uttr_len = pred_c.size(1)
-    #     # 这里进行截断
-    #     gold_c = gold_c[:,:uttr_len]
-    #     c_mask = gold_c != -1  # 为 -1 的位置为填充值
-    #     pred_c = pred_c.squeeze(-1).masked_select(c_mask).cpu()
-    #     true_c = gold_c.masked_select(c_mask).float().cpu()
-    #     criterion = nn.BCEWithLogitsLoss(reduction='mean')
-    #     loss_c = criterion(pred_c, true_c)
-    #     return loss_c
-
-    # def loss_pre_ec(self, couples_pred, emo_cau_pos, ec_pair, uttr_mask, test = False):
-    #     couples_true, couples_mask = self.truncate_ec_pairs(couples_pred, emo_cau_pos, ec_pair, uttr_mask, test)
-    #     couples_mask = torch.BoolTensor(couples_mask).to(DEVICE)
-    #     couples_true = torch.FloatTensor(couples_true).to(DEVICE)
-    #     criterion = nn.BCEWithLogitsLoss(reduction='mean')
-    #     couples_true = couples_true.masked_select(couples_mask)
-    #     couples_pred = couples_pred.masked_select(couples_mask)
-    #     loss_couple = criterion(couples_pred, couples_true)
-    #     return loss_couple
-
     def truncate_ec_pairs(self, couples_pred, emo_cau_pos, ec_pair, uttr_mask, test=False):
         batch, n_couple = couples_pred.size()
         couples_true, couples_mask = [], []
         for i in range(batch):
             uttr_mask_i = uttr_mask[i]
             uttr_len = uttr_mask_i.sum().item()
-            uttr_couples_i = ec_pair[i]  # 该对话的真实配对
+            uttr_couples_i = ec_pair[i]  
             couples_true_i = []
             couples_mask_i = []
-            for couple_idx, emo_cau in enumerate(emo_cau_pos):  # 对每个笛卡尔积后的情绪原因配对（经过截断后的），但是经过batch的padding后，可能有一些配对是无效的
-                if emo_cau[0] > uttr_len or emo_cau[1] > uttr_len:  # 情绪idx或者原因idx如果超出了该对话的长度
+            for couple_idx, emo_cau in enumerate(emo_cau_pos):  
+                if emo_cau[0] > uttr_len or emo_cau[1] > uttr_len:  
                     couples_mask_i.append(0)
                     couples_true_i.append(0)
                 else:

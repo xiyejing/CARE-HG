@@ -32,11 +32,7 @@ class MECPECDataLoader(DataLoader):
         self.batches = [self.data[idx * self.batch_size: min(self.length, (idx + 1) * self.batch_size)]
                         for idx in range(0, self.batch_num)]
         print("batch_num {} \t batches_num {}".format(self.batch_num, len(self.batches)))
-    
-    # 初始化张量
-    # uttr_len: 对话话语数
-    # audio_max_uttr_len: 音频最大话语长度
-    # audio_dim: 音频特征维度
+
     def _initialize_tensors(self, uttr_len, audio_dims, video_dims):   
         # self.input_ids = torch.LongTensor(self.batch_size, self.max_length).cpu()
         # self.segment_ids = torch.LongTensor(self.batch_size, self.max_length).cpu()
@@ -95,15 +91,7 @@ class MECPECDataLoader(DataLoader):
             self._initialize_tensors(uttr_len, audio_dim, video_dim)
             self._zero_tensors()
             graphs = []
-            # audio_features = [example['audio_features']  for example in batch]
-            # 去掉第一个维度 (1, utt_len, dim) -> (utt_len, dim)，因为我们只需要填充第二个维度
-            # padded_audio_features = [torch.cat(feats) for feats in audio_features]  # 每个对话的多个utterances合并成一个tensor
-            # padded_audio_features = pad_sequence(padded_audio_features, batch_first=True)
 
-
-            # 生成 mask，1 表示有效帧，0 表示填充部分
-            # audio_mask = torch.ones(padded_audio_features.size()[:-1])  # 先初始化为全1的mask
-            # audio_mask[padded_audio_features.sum(dim=-1) == 0] = 0  # 找到填充部分并将其置为0
             for i, example in enumerate(batch):
                 conv_id, in_id, seg_id, mt_id, em_id, sp_id, in_mask, tr_mask, uttr_ind, uttr_len, graph = \
                     example['conversation_id'], example['input_id'], example['segment_id'], example['mention_id'], \
@@ -138,10 +126,10 @@ class MECPECDataLoader(DataLoader):
                 audio_uttr_idx += uttr_num
                 
 
-            context_word_mask = self.input_masks > 0 # 这里之前是self.input_ids > 0， 有问题
+            context_word_mask = self.input_masks > 0 
             context_word_len = context_word_mask.sum(dim=1)
             batch_max_len = context_word_len.max() # 
-            max_length = max(len(dialog['emotion_list']) for dialog in batch) # 最大话语长度
+            max_length = max(len(dialog['emotion_list']) for dialog in batch) 
             padded_emotion_list = [example['emotion_list'] + [0] * (max_length - len(example['emotion_list'])) for example in batch]
             padded_cause_list = [example['cause_list'] + [-1] * (max_length - len(example['cause_list'])) for example in batch]
             ec_pairs = [example['ec_pairs'] for example in batch]
@@ -170,7 +158,6 @@ class MECPECDataLoader(DataLoader):
                 # 'conv_audio_features': get_cuda(self.conv_audio_features[:batch_len, :].contiguous())
             }
 
-# 假设 get_cuda 是一个将张量移动到 CUDA 设备的函数
 def get_cuda(tensor):
     return tensor.cuda() if torch.cuda.is_available() else tensor
 

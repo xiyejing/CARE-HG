@@ -51,15 +51,15 @@ class PairNN(nn.Module):
         rel_pos = torch.LongTensor(rel_pos).to(DEVICE)
         emo_pos = torch.LongTensor(emo_pos).to(DEVICE)
         cau_pos = torch.LongTensor(cau_pos).to(DEVICE)
-        # 距离敏感
+    
         if uttr_len > k:
-            rel_mask = np.array(list(map(lambda x: -k <= x <= k, rel_pos.tolist())), dtype=int) # 长度为N*N, 每个元素1表示该位置的情绪原因index之差的绝对值在k之内，0表示不在k之内
+            rel_mask = np.array(list(map(lambda x: -k <= x <= k, rel_pos.tolist())), dtype=int) 
             rel_mask = torch.BoolTensor(rel_mask).to(DEVICE)
             rel_pos = rel_pos.masked_select(rel_mask)
             emo_pos = emo_pos.masked_select(rel_mask)
             cau_pos = cau_pos.masked_select(rel_mask)
 
-            rel_mask = rel_mask.unsqueeze(1).expand(-1, 2 * feat_dim)  #【N*N,2*D】
+            rel_mask = rel_mask.unsqueeze(1).expand(-1, 2 * feat_dim)  # [N*N,2*D]
             rel_mask = rel_mask.unsqueeze(0).expand(batch, -1, -1) #[B,N*N,2*D]
             P = P.masked_select(rel_mask)
             P = P.reshape(batch, -1, 2 * feat_dim)

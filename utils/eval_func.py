@@ -7,19 +7,14 @@ from utils.global_variables import EMOTION_MAPPING
 
 def get_pred_result(em_logits, ca_logits, couples_pred, emo_caus_pos, uttr_mask):
     em_logits = np.asarray(em_logits.cpu().detach())
-    # 将 em_logits 应用 softmax 转换为概率分布
     em_probs = np.exp(em_logits) / np.sum(np.exp(em_logits), axis=-1, keepdims=True)
     ca_probs = torch.sigmoid(ca_logits)
 
-    # 找到每个样本的最大概率对应的索引，即预测的情绪类别
-    predicted_emotions = np.argmax(em_probs, axis=-1) + 1 # 加1是为了和原始的标签对齐
+    predicted_emotions = np.argmax(em_probs, axis=-1) + 1 
     threshold = 0.5
     predicted_causes = (ca_probs >threshold).float()
 
-    # 情绪原因对预测
-    # couples_pred = np.asarray(couples_pred)
-    # 情绪原因对预测结果应用 sigmoid 函数转换为概率分布
-    # 将 logits 或概率转换为二分类标签
+
 
     pred_labels = (torch.sigmoid(couples_pred) > threshold).float()
 
@@ -29,8 +24,8 @@ def get_pred_result(em_logits, ca_logits, couples_pred, emo_caus_pos, uttr_mask)
         pred_ec_pairs_i = []
         for i, (pred_label, emo_caus) in enumerate(zip(pred_labels[idx], emo_caus_pos)):
             emo_idx, caus_idx = emo_caus
-            if emo_idx <= uttr_mask[idx].sum().item() and caus_idx <= uttr_mask[idx].sum().item() and pred_label: # 如果情绪原因对的索引在有效的话语长度内且预测为真
-                if predicted_emotions[idx][emo_idx -1] != 7: # 非中性情绪
+            if emo_idx <= uttr_mask[idx].sum().item() and caus_idx <= uttr_mask[idx].sum().item() and pred_label:
+                if predicted_emotions[idx][emo_idx -1] != 7: 
                     pred_ec_pairs_i.append(emo_caus)
         pred_ec_pairs.append(pred_ec_pairs_i)
 
@@ -39,45 +34,33 @@ def get_pred_result(em_logits, ca_logits, couples_pred, emo_caus_pos, uttr_mask)
 def calc_eval_result(emotion_pred_all, emotion_list_all, cause_pred_all, cause_list_all, couples_pred_all, ec_pair_all):
     a = 1
     eval_result = {}
-    # 计算情绪分类的准确率
-    # 在测试时，因为进行了截断，所以需要根据实际的情绪列表进行填充，默认填充为中性
-    # 确保 emotion_pred_all 中的每个列表长度与 emotion_list_all 中的对应列表长度相同
     for i in range(len(emotion_pred_all)):
-        # 计算需要填充的元素数量
         extra_length = len(emotion_list_all[i]) - len(emotion_pred_all[i])
-        # 如果 emotion_pred_all 的当前列表比 emotion_list_all 的短，则进行填充
         if extra_length > 0:
             emotion_pred_all[i].extend([7] * extra_length)
-    # 将数据展平成一维列表
     flat_pred_emo = [pred for sublist in emotion_pred_all for pred in sublist]
     flat_true_emo = [true for sublist in emotion_list_all for true in sublist]
 
     flat_pred_cau = [pred for sublist in cause_pred_all for pred in sublist]
     flat_true_cau = [true for sublist in cause_list_all for true in sublist]
 
-    # 转换为 NumPy 数组
     flat_pred_emo = np.array(flat_pred_emo)
     flat_true_emo = np.array(flat_true_emo)
 
     flat_pred_cau = np.array(flat_pred_cau)
     flat_true_cau = np.array(flat_true_cau)
 
-    # 找出有效位置的掩码
     valid_mask = flat_true_emo != 0
 
-    # 只保留有效位置的数据
     valid_pred_emo = flat_pred_emo[valid_mask]
     valid_true_emo = flat_true_emo[valid_mask]
 
-    # Emotion Extraction: 判断是否为情感子句 (二分类)
     gold_emo_bin = np.array([0 if w == 6 else 1 for w in flat_true_emo])
     pred_emo_bin = np.array([0 if w == 6 else 1 for w in flat_pred_emo])
 
-    # 只保留有效位置
     gold_emo_bin = gold_emo_bin[valid_mask]
     pred_emo_bin = pred_emo_bin[valid_mask]
 
-    # 计算 P, R, F1 for Emotion Extraction
     precision_ee = precision_score(gold_emo_bin, pred_emo_bin, average='binary')
     recall_ee = recall_score(gold_emo_bin, pred_emo_bin, average='binary')
     f1_ee = f1_score(gold_emo_bin, pred_emo_bin, average='binary')
@@ -86,8 +69,6 @@ def calc_eval_result(emotion_pred_all, emotion_list_all, cause_pred_all, cause_l
     eval_result['recall_ee'] = recall_ee
     eval_result['f1_ee'] = f1_ee
 
-
-    # 计算 P, R, F1
     precision_emo = precision_score(valid_true_emo, valid_pred_emo, average='weighted') # macro
     recall_emo = recall_score(valid_true_emo, valid_pred_emo, average='weighted')
     f1_emo = f1_score(valid_true_emo, valid_pred_emo, average='weighted')
@@ -111,7 +92,6 @@ def calc_eval_result(emotion_pred_all, emotion_list_all, cause_pred_all, cause_l
     emotions_4 = list(set(filtered_emotion_mapping.values()))
 
     ec_pair_all = [arr.tolist() for arr in ec_pair_all]
-    # 计算情绪原因对提取结果
     precision_ec, recall_ec, f1_ec = calc_f1_by_list(ec_pair_all, couples_pred_all)
     eval_result['precision_ec'] = precision_ec
     eval_result['recall_ec'] = recall_ec
@@ -155,7 +135,6 @@ def calc_eval_result(emotion_pred_all, emotion_list_all, cause_pred_all, cause_l
     eval_result['weighted_avg_p_4_ec'] = weighted_avg_p_4
     eval_result['weighted_avg_r_4_ec'] = weighted_avg_r_4
 
-    # 三重提取结果
     triples_all_true = get_triples(emotion_list_all, ec_pair_all)
     triples_all_pred = get_triples(emotion_pred_all, couples_pred_all)
     precision_triple, recall_triple, f1_triple = calc_f1_by_list(triples_all_true, triples_all_pred)
@@ -163,11 +142,8 @@ def calc_eval_result(emotion_pred_all, emotion_list_all, cause_pred_all, cause_l
     eval_result['recall_triple'] = recall_triple
     eval_result['f1_triple'] = f1_triple
 
-    # evg三重提取结果
-    # 过滤掉每个对话中的 neutral 类别
     filtered_pred_triple = [[triple for triple in triples if triple[0] != EMOTION_MAPPING['ECF']['neutral']] for triples in triples_all_pred]
     filtered_true_triple = [[triple for triple in triples if triple[0] != EMOTION_MAPPING['ECF']['neutral']] for triples in triples_all_true]
-    # 去除neutral的emotion index列表
 
     precision_per_class, recall_per_class, f1_per_class, weighted_avg_f1_6, weighted_avg_p_6, weighted_avg_r_6 = calc_weighted_avg_f1_by_list \
         (filtered_true_triple, filtered_pred_triple, emotions_6)
@@ -178,7 +154,6 @@ def calc_eval_result(emotion_pred_all, emotion_list_all, cause_pred_all, cause_l
     eval_result['weighted_avg_p_6'] = weighted_avg_p_6
     eval_result['weighted_avg_r_6'] = weighted_avg_r_6
 
-    # 去除 'disgust', 'fear' 和 'neutral' 的键值对
 
     _, _, _, weighted_avg_f1_4, weighted_avg_p_4, weighted_avg_r_4 = calc_weighted_avg_f1_by_list(filtered_true_triple, filtered_pred_triple, emotions_4)
     eval_result['weighted_avg_f1_4'] = weighted_avg_f1_4
@@ -231,9 +206,6 @@ def calc_weighted_avg_f1_by_list(triples_all_true, triples_all_pred, emotions):
 import numpy as np
 
 def calc_f1_and_weighted_avg_ec_pairs(emotion_list_all, true_ec_pairs, pred_ec_pairs, emotions):
-    """
-    计算 EC-pair 的 precision/recall/f1（按类别）以及 weighted F1
-    """
     precision_per_class = []
     recall_per_class = []
     f1_per_class = []
@@ -244,14 +216,11 @@ def calc_f1_and_weighted_avg_ec_pairs(emotion_list_all, true_ec_pairs, pred_ec_p
         tp = fp = fn = support = 0
 
         for emo_list, true_pairs, pred_pairs in zip(emotion_list_all, true_ec_pairs, pred_ec_pairs):
-
-            # 真实 pair 属于该类
             true_cls_pairs = [
                 p for p in true_pairs
                 if (emo_list[p[0] - 1] - 1) == emo
             ]
 
-            # 预测 pair 属于该类
             pred_cls_pairs = [
                 p for p in pred_pairs
                 if (emo_list[p[0] - 1] - 1) == emo
@@ -293,7 +262,7 @@ def calc_f1_by_list(true_list, pred_list):
     FP = 0
     FN = 0
 
-    for true_pairs, pred_pairs in zip(true_list, pred_list): # 对对话中的每一对进行比较
+    for true_pairs, pred_pairs in zip(true_list, pred_list): 
 
         for pair in pred_pairs:
             if pair in true_pairs:
@@ -318,7 +287,7 @@ def get_triples(emotion_list_all, ec_pair_all):
         triples = []
         for pair in ec_pairs:
             emo_idx, caus_idx = pair
-            emotion = emotion_list_all[i][emo_idx -1 ] -1 # 减1是因为预测的索引是从1开始的,并且预测值是从1-7
+            emotion = emotion_list_all[i][emo_idx -1 ] -1 
             triple = [emotion, emo_idx, caus_idx]
             triples.append(triple)
         triples_all.append(triples)

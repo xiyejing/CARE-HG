@@ -33,10 +33,8 @@ os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
 # os.environ['WORLD_SIZE'] = '2'
 # os.environ['MASTER_ADDR'] = 'localhost'
 # os.environ['MASTER_PORT'] = '12345'
-# 设置wandb为离线模式
 os.environ["WANDB_MODE"] = "offline"
 wandb.init(  
-    # set the wanZ5EE8@i$3ji@db project where this run will be logged
     project="DAG-MECPEC-Roberta-large-a",
     name='Roberta-GAT-GRU-MLP',
 )
@@ -119,10 +117,9 @@ class Config:
         
 def set_random_seed_all(seed):
     from transformers import set_seed
-    # 设置随机种子
     set_seed(seed)
     os.environ['PYTHONHASHSEED'] =str(seed)
-    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'  # 或者使用 ':16:8'
+    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8' 
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -164,7 +161,6 @@ def get_speaker_dict(dataset, data_dir):
     id = 1
     with open(os.path.join(data_dir,dataset,'all_data.json'),'r') as f:
         data = json.load(f)
-    # ECF数据集的说话人数量
     for conversation in data:
         for utterance in conversation['conversation']:
             speaker = utterance['speaker']
@@ -176,8 +172,7 @@ def run(config, seed):
     from tensorboardX import SummaryWriter
     # os.environ['RANK'] = 0
 
-    # 初始化 SummaryWriter
-    writer = SummaryWriter(logdir='logs')  # 日志目录
+    writer = SummaryWriter(logdir='logs') 
     set_random_seed_all(seed)
     if config.local_rank == -1 or config.no_cuda:
             device = torch.device("cuda" if torch.cuda.is_available() and not config.no_cuda else "cpu")
@@ -212,16 +207,11 @@ def run(config, seed):
     else:
         raise ValueError("The encoder type is invalid.")
     
-    # wav2vec2_model, visual_model = None, None
-    # am_config = None
-    # if 'audio' in config.modality:
-    #     am_config = Wav2Vec2Config.from_pretrained(config.audio_pretrain_model_dir)
-    #     wav2vec2_model = Wav2Vec2Model.from_pretrained(config.audio_pretrain_model_dir)
-    #     wav2vec2_model = wav2vec2_model.to('cuda')  # 将模型移动到 GPU 上
+
     visual_model =  None
     if 'video' in config.modality:
         visual_model = VideoMAEModel.from_pretrained(config.video_pretrain_model_dir)
-        visual_model = visual_model.to('cuda')  # 将模型移动到 GPU 上
+        visual_model = visual_model.to('cuda')  
     
     # if config.max_seq_length > lm_config.max_position_embeddings:
     if config.max_seq_length > 512:
@@ -244,13 +234,11 @@ def run(config, seed):
     else:
         raise ValueError("The pretrained tokenizer has not been initialized.")
 
-    # 创建speaker2id字典
     speaker2id = {}
     for i in range(1, config.max_speaker_num + 1):
         token = "S{}".format(i)
         speaker2id[token] = i
 
-    # 增加额外的特殊tokens
     special_tokens_dict = {'additional_special_tokens': list(speaker2id.keys())}
     tokenizer.add_special_tokens(special_tokens_dict)
 
@@ -269,9 +257,7 @@ def run(config, seed):
     if not os.path.exists(saved_dir):
         os.makedirs(saved_dir)
     
-    # video_processor = None, None
     video_processor = None
-    # # 加载音频预处理器
     if 'audio' in config.modality:
         audio_processor = Wav2Vec2Processor.from_pretrained(config.audio_pretrain_model_dir)
     if 'video' in config.modality:
@@ -301,7 +287,6 @@ def run(config, seed):
                                     max_length=config.max_seq_length, modality = config.modality)
     
 
-    # Todo: 模型初始化
     if config.pretrain_encoder_type == 'RoBERTa':
         model = MECPECModel(lm_config, config, data_name=config.data_name, modality = config.modality).to(device)
         model_path = os.path.join(config.textual_pretrain_model_dir, config.init_pretrain_checkpoint)
@@ -318,7 +303,6 @@ def run(config, seed):
             else:
                 model = M3HG(lm_config, config, data_name=config.data_name, modality = config.modality).to(device)
         elif config.network == 'RankCP':
-            # RankCP的配置项
             config.feat_dim = 768
             config.gnn_dims = '192'
             config.att_heads = '4'
@@ -382,17 +366,15 @@ def run(config, seed):
         logger.info("\tBatch Size: {}".format(config.train_batch_size))
         logger.info("\tStep Number: {}".format(num_train_steps))
 
-        # 定义epoch的横坐标
         wandb.define_metric("train/epoch/step")
         wandb.define_metric("train/epoch/*", step_metric="train/epoch/step")
         wandb.define_metric("valid/epoch/step")
         wandb.define_metric("valid/epoch/*", step_metric="valid/epoch/step")
-        # 定义batch的横坐标
         wandb.define_metric("train/batch/step")
         wandb.define_metric("train/batch/*", step_metric="train/batch/step")
         wandb.watch(model, log="all")
         wandb_batch_step = 0
-        best_epoch = 0 # 记录效果最好的epoch
+        best_epoch = 0 
         for cur_epoch in trange(int(config.num_train_epochs), desc="Epoch"):
             model.train()
             tr_loss, tloss_e, tloss_c, tloss_ec, tloss_cf, tsparsity_loss = 0, 0, 0, 0, 0, 0
@@ -411,7 +393,7 @@ def run(config, seed):
                 speaker_ids = batch['speaker_ids'].to(device)
                 input_masks = batch['input_masks'].to(device)
                 turn_masks = batch['turn_masks'].to(device)
-                emotion_list = batch['emotion_list'].to(device) # 这里的标签为1-7，0表示无效
+                emotion_list = batch['emotion_list'].to(device) 
                 cause_list = batch['cause_list'].to(device)
                 uttr_indices = batch['uttr_indices'].to(device)
                 uttr_len = batch['uttr_len']
@@ -432,15 +414,14 @@ def run(config, seed):
                                     emotion_ids=emotion_ids, turn_masks=turn_masks, uttr_indices = uttr_indices, graphs = graphs, uttr_len = uttr_len, 
                                     audio_features = audio_features, video_features = video_features, modality = modality, is_training=True)
                     if config.data_name == 'ECF' or config.data_name == 'MECAD':
-                        # 主分支 loss
                         loss_e = model.loss_pre_emo(em_logits, emotion_list)
                         loss_c = model.loss_pre_cau(ca_logits, cause_list)
                         loss_ec = model.loss_pre_ec(couples_pred, emo_caus_pos, ec_pair, uttr_mask)
                         # loss_e_cf = model.loss_pre_emo(em_logits_cf, emotion_list)
 
 
-                        # CF 分支 loss
-	        # ....
+
+	                # ....cf
 
 
                     else:
@@ -512,10 +493,10 @@ def run(config, seed):
             #       f"corr(CCE,M)={epoch_corr/nb_tr_steps:.4f}")
             logger.info("-------- Start Evaluating: {}--------".format(cur_epoch)) 
             if cur_epoch == 26:
-                a = 1 # 调试
+                a = 1 
             emotion_pred_all, emotion_list_all, cause_pred_all, cause_list_all, couples_pred_all, ec_pair_all, eval_loss = evaluate(model, dev_loader, 'valid' , config.data_name, config.network, config.modality)
             eval_result = calc_eval_result(emotion_pred_all, emotion_list_all, cause_pred_all, cause_list_all, couples_pred_all, ec_pair_all)
-            eval_f1 = eval_result[config.model_metric] #使用w-avg-f1-6作为最佳模型选择
+            eval_f1 = eval_result[config.model_metric] 
             wandb.log({"valid/epoch/loss": eval_loss, "valid/epoch/ec_f1": eval_result['f1_ec'], 
                     "valid/epoch/emo_f1": eval_result['f1_emo'], "valid/epoch/ee_f1": eval_result['f1_ee'],
                     "valid/epoch/w-avg-6-f1":eval_result["weighted_avg_f1_6"], "valid/epoch/step":cur_epoch})
@@ -543,7 +524,6 @@ def run(config, seed):
 
             updated_best = False
 
-            # 判断每个指标是否有提升
             for key in best_metrics.keys():
                 current_val = eval_result[key]
                 if current_val > best_metrics[key]["value"]:
@@ -551,7 +531,6 @@ def run(config, seed):
                     best_metrics[key]["epoch"] = cur_epoch
                     updated_best = True
 
-            # 任一指标更新则保存模型 & 打印最新最佳情况
             if updated_best:
                 logger.info("-------- Updated Best Metric Results --------")
                 with open(best_result_path, "a", encoding="utf-8") as f:
@@ -601,8 +580,8 @@ def evaluate(model, loader, mode='valid', data_name = 'ECF', network='MECPEC',  
     model.eval()
     eval_loss, eval_f1 = 0, 0
     nb_eval_steps, nb_eval_examples = 0, 0 # number of evaluation steps and examples
-    # em_logits_all = [] # 所有的情绪预测
-    emotion_list_all = [] # 所有的情绪预测实际值
+    # em_logits_all = [] 
+    emotion_list_all = [] 
     emotion_pred_all = []
     cause_list_all = []
     cause_pred_all = []
@@ -618,7 +597,7 @@ def evaluate(model, loader, mode='valid', data_name = 'ECF', network='MECPEC',  
         speaker_ids = batch['speaker_ids'].to(DEVICE)
         input_masks = batch['input_masks'].to(DEVICE)
         turn_masks = batch['turn_masks'].to(DEVICE)
-        emotion_list = batch['emotion_list'].to(DEVICE) # 这里的标签为1-7，0表示无效
+        emotion_list = batch['emotion_list'].to(DEVICE) 
         cause_list = batch['cause_list'].to(DEVICE)
         uttr_indices = batch['uttr_indices'].to(DEVICE)
         uttr_len = batch['uttr_len']
@@ -691,10 +670,8 @@ def main():
     parser.add_argument("--config_file", default="config.yaml", type=str, help="Path to the YAML config file.")
     args = parser.parse_args()
 
-    # 使用Config类加载配置
     config = Config.from_yaml(args.config_file)
     wandb.config.update(config.__dict__)
-    # 初始化存储结果的数据结构
     f1_results = {
         'f1_per_class': [],
         'weighted_avg_f1_4': [],
@@ -706,7 +683,6 @@ def main():
         f1_results['weighted_avg_f1_4'].append(eval_result['weighted_avg_f1_4'])
         f1_results['weighted_avg_f1_6'].append(eval_result['weighted_avg_f1_6'])
 
-    # 计算每个指标的平均值和标准偏差
     summary_results = {}
     summary_results['f1_per_class_mean'] = np.mean(f1_results['f1_per_class'], axis=0)
     summary_results['f1_per_class_std'] = np.std(f1_results['f1_per_class'], axis=0, ddof=1)
@@ -715,7 +691,6 @@ def main():
     summary_results['weighted_avg_f1_6_mean'] = np.mean(f1_results['weighted_avg_f1_6'])
     summary_results['weighted_avg_f1_6_std'] = np.std(f1_results['weighted_avg_f1_6'], ddof=1)
 
-    # 打印结果
     logger.info("-------- Final Results --------")
     log_result(summary_results)
 

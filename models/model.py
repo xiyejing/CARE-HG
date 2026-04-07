@@ -74,11 +74,11 @@ class MECPECModel(nn.Module):
         self.emotion_mlp = EmotionMLP(2 * self.gcn_dim, len(set(EMOTION_MAPPING[data_name].values())))
         self.cause_mlp = CauseMLP(2 * self.gcn_dim)
         
-        # 转化为图神经网络的维度
+        # Project features to graph network dimension
         
         self.gat_layers = config.gat_layers
         self.graph_attention_size = int(self.gcn_dim / config.num_graph_attention_heads)
-        # 图注意力层
+        # Graph attention layers
         self.GAT_layers = nn.ModuleList([GATLayer(meta_paths= GRAPH_CONFIG_T['meta_paths'],
                                                   in_size=self.gcn_dim, out_size=self.graph_attention_size,
                                                   layer_num_heads=config.num_graph_attention_heads) for _ in range(self.gat_layers)])
@@ -87,7 +87,7 @@ class MECPECModel(nn.Module):
         #self.gru_utterance = nn.GRU(self.gcn_dim, self.gcn_dim, batch_first=False)
         # self.hgc_layers = nn.ModuleList([HeteroGraphConvLayer(in_size=self.gcn_dim, out_size=self.graph_attention_size,
         #                                           layer_num_heads=config.num_graph_attention_heads) for _ in range(self.gat_layers)])
-        # 情绪原因配对
+        # Emotion-cause pairing
         self.ec_pairing = PairNN(2 * self.gcn_dim, config.pos_emb_dim, config.rel_pos_k)
         
 
@@ -115,7 +115,6 @@ class MECPECModel(nn.Module):
         em_logits, ec_logits  = 0, 0
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
         batch_size = input_ids.size(0)
-        # 清理显存的函数
         def clear_cache(*vars):
             for var in vars:
                 del var
@@ -139,12 +138,6 @@ class MECPECModel(nn.Module):
             # outputs = self.xl_net(input_ids=input_ids,
             #                         attention_mask=attention_masks,
             #                         token_type_ids=token_type_ids)
-            # B: batch size
-            # N: 对话的话语长度（根据batch进行padding）
-            # S：对话输入的序列token长度，填充至max-seq-length
-            # D: Roberta的隐藏层维度
-            # M: 这个batch的所有图的节点数之和
-            # H: 图神经网络的隐层维度
 
             sequence_outputs_h = outputs[0] # B*S*D
             pooled_outputs = outputs[1]   # B*D
@@ -152,7 +145,6 @@ class MECPECModel(nn.Module):
             sequence_outputs_h = self._batched_index_select(sequence_outputs_h, uttr_indices, mention_ids) # B*N*D
             sequence_outputs_h = self.linear_t(sequence_outputs_h)
             pooled_outputs = self.linear_t(pooled_outputs).unsqueeze(1)
-            # 清理不再使用的变量
             clear_cache(outputs)
             # pooled_outputs = torch.mean(sequence_outputs, dim=1)  # B*D
         if 'audio' in modality:
@@ -161,7 +153,6 @@ class MECPECModel(nn.Module):
             conv_audio_in = self.linear_a(conv_audio_in)
             audio_in = self.rume(audio_in, uttr_len)
             conv_audio_in = self.rume(conv_audio_in, uttr_len)
-            # 清理不再使用的变量
             clear_cache(audio_features)
         if 'video' in modality:
             conv_video_in = torch.mean(video_features, dim=1).unsqueeze(1)
@@ -169,38 +160,24 @@ class MECPECModel(nn.Module):
             conv_video_in = self.linear_v(conv_video_in)
             video_in = self.rume(video_in, uttr_len)
             conv_video_in = self.rume(conv_video_in, uttr_len)
-            # 清理不再使用的变量
             clear_cache(video_features)
-
-
-        # audio_mask = (uttr_indices != 0).float()
-        # featcross_t, featcross_a = self.acme(sequence_outputs_h, audio_in , audio_mask) # audio_mask: B * S
-        # conv_featcross_t, conv_featcross_a = self.acme(pooled_outputs, conv_audio_in, audio_mask[:, 0].unsqueeze(-1))
-
-        # featcross_cat = torch.concat([featcross_t, featcross_a], dim=-1)
-        # sequence_outputs_h = self.drop_cat(F.relu(self.linear_cat(featcross_cat)))
-        # conv_featcross_cat = torch.concat([conv_featcross_t, conv_featcross_a], dim=-1)
-        # pooled_outputs = self.drop_cat(F.relu(self.linear_cat(conv_featcross_cat)))
-        # # 清理不再使用的变量
-        # clear_cache(featcross_t, featcross_a, conv_featcross_t, conv_featcross_a, featcross_cat, conv_featcross_cat)
-        # graph_in = self.transform(sequence_outputs_h) # B*N*H
             
 
         # initialize graph nodes
-        h_dict = {'utterance':None,'conversation':None,'emotion':None,'cause':None} # 用于存储不同类型的节点特征
+        h_dict = {'utterance':None,'conversation':None,'emotion':None,'cause':None} 
         # h_dict = {'utterance_t':None,'utterance_a':None, 'utterance_v':None,
         #           'conversation_t':None,'conversation_a':None,'conversation_v':None,
-        #           'emotion':None,'cause':None} # 用于存储不同类型的节点特征
+        #           'emotion':None,'cause':None} 
         graph_in = sequence_outputs_h # B*N*H
         # initialize graph nodes
         for i in range(len(graphs)):
-            sequence_outputs_h_i = sequence_outputs_h[i][:uttr_len[i]] # N*D(N要去除padding的部分)
+            sequence_outputs_h_i = sequence_outputs_h[i][:uttr_len[i]] 
             conversation_h_i =  pooled_outputs[i] # H
             if h_dict['utterance'] is not None:
                 h_dict['utterance'] = torch.cat([h_dict['utterance'], sequence_outputs_h_i], dim=0)
             else:
                 h_dict['utterance'] = sequence_outputs_h_i
-            assert uttr_len[i] == (graphs[i].num_nodes()-1)/3 == sequence_outputs_h_i.shape[0] # 除去对话节点
+            assert uttr_len[i] == (graphs[i].num_nodes()-1)/3 == sequence_outputs_h_i.shape[0] 
 
             if h_dict['conversation'] is not None:
                 h_dict['conversation'] = torch.cat([h_dict['conversation'], conversation_h_i], dim=0)
@@ -217,7 +194,7 @@ class MECPECModel(nn.Module):
         
         # construct big graph:
         graph_big = dgl.batch(graphs)
-        uttr_nodes_num = int((graph_big.num_nodes() - batch_size)/3) # 除去对话节点的话语节点数/3，因为总共有三个类型节点，除去对话节点
+        uttr_nodes_num = int((graph_big.num_nodes() - batch_size)/3) 
 
 
         for layer_num, GAT_layer in enumerate(self.GAT_layers):
@@ -236,11 +213,11 @@ class MECPECModel(nn.Module):
         # get the output of the last GAT layer
         fea_idx = 0
         max_uttr_num = max(uttr_len)
-        gragh_h_emotion = None # 用于存储图结构的情绪节点特征
-        gragh_h_cause = None # 用于存储图结构的原因节点特征
+        gragh_h_emotion = None 
+        gragh_h_cause = None 
 
         for i in range(len(graphs)):
-            node_num = int((graphs[i].num_nodes() - 1)/3) # M， 这里包括了一个对话的对话节点和话语节点
+            node_num = int((graphs[i].num_nodes() - 1)/3) 
             graph_h_emotion_i = h_dict['emotion'][fea_idx:fea_idx+node_num]
             padded_graph_h_emotion_i = F.pad(graph_h_emotion_i, (0, 0, 0, max_uttr_num - graph_h_emotion_i.size(0))) # padding N*H
             graph_h_cause_i = h_dict['cause'][fea_idx:fea_idx+node_num]
@@ -256,16 +233,15 @@ class MECPECModel(nn.Module):
                 gragh_h_cause = torch.cat([gragh_h_cause, padded_graph_h_cause_i.unsqueeze(0)], dim=0)
 
         
-        # 筛选配对
         # em_logits = self.emotion_mlp(graph_in)
         # ca_logits = self.cause_mlp(graph_in)
-        # couples_pred, emo_caus_pos = self.ec_pairing(graph_in, graph_in) # B*(N*N) 情绪原因配对logits
-        em_logits = self.emotion_mlp(torch.cat([graph_in, gragh_h_emotion], dim = -1)) # B*N*E 情绪类别logits
-        ca_logits = self.cause_mlp(torch.cat([graph_in, gragh_h_cause], dim = -1)) # B*N*1 原因类别logits
+        # couples_pred, emo_caus_pos = self.ec_pairing(graph_in, graph_in) # B*(N*N) 
+        em_logits = self.emotion_mlp(torch.cat([graph_in, gragh_h_emotion], dim = -1)) # B*N*E 
+        ca_logits = self.cause_mlp(torch.cat([graph_in, gragh_h_cause], dim = -1)) # B*N*1 
         emotion_g_h = torch.cat([graph_in, gragh_h_emotion], dim = -1)
         cause_g_h = torch.cat([graph_in, gragh_h_cause], dim = -1)
-        couples_pred, emo_caus_pos = self.ec_pairing(emotion_g_h, cause_g_h) # B*(N*N) 情绪原因配对logits
-        # em_logits = self.emotion_mlp(gragh_h) # B*N*E 情绪类别logits
+        couples_pred, emo_caus_pos = self.ec_pairing(emotion_g_h, cause_g_h) # B*(N*N) 
+        # em_logits = self.emotion_mlp(gragh_h) # B*N*E 
         
         return em_logits, ca_logits, couples_pred, emo_caus_pos
     
@@ -289,17 +265,16 @@ class MECPECModel(nn.Module):
         slen = sequence_outputs.shape[1]
         feature_dim = sequence_outputs.size(-1)
         batch_size = sequence_outputs.size(0)
-        # 初始化一个填充张量
         doc_sents_h = get_cuda(torch.zeros(batch_size, max_uttr_len, feature_dim))
-        for i in range(sequence_outputs.size(0)): # 对于每个batch
+        for i in range(sequence_outputs.size(0)): 
             sequence_output = sequence_outputs[i]
-            mention_num = torch.max(mention_ids[i]) # 话语数
+            mention_num = torch.max(mention_ids[i]) 
             mention_index = get_cuda((torch.arange(mention_num) + 1).unsqueeze(1).expand(-1, slen))  # N * S (4*138)
             mentions = mention_ids[i].unsqueeze(0).expand(mention_num, -1) # shape:N*512
             select_metrix = (mention_index == mentions).float()
-            word_total_numbers = torch.sum(select_metrix, dim=-1).unsqueeze(-1).expand(-1, slen) # 每个话语的词数
+            word_total_numbers = torch.sum(select_metrix, dim=-1).unsqueeze(-1).expand(-1, slen) 
             select_metrix = torch.where(word_total_numbers > 0, select_metrix / word_total_numbers, select_metrix)
-            uttr_h = torch.mm(select_metrix, sequence_output) # 根据话语长度做加权平均
+            uttr_h = torch.mm(select_metrix, sequence_output) 
             doc_sents_h[i, :uttr_h.size(0), :] = uttr_h
         # dummy = uttr_indices.unsqueeze(2).expand(uttr_indices.size(0), uttr_indices.size(1), sequence_outputs.size(2))
         # doc_sents_h = sequence_outputs.gather(1, dummy)
@@ -315,7 +290,7 @@ class MECPECModel(nn.Module):
         pred_e_cpu = pred_e.permute(0, 2, 1).cpu()
         gold_e_cpu = gold_e.cpu()
         # criterion = FocalLoss(reduction='mean', ignore_index=-1)
-        criterion = nn.CrossEntropyLoss(reduction='mean', ignore_index=-1) # 为-1的值被忽略
+        criterion = nn.CrossEntropyLoss(reduction='mean', ignore_index=-1) 
         loss_e = criterion(pred_e_cpu, gold_e_cpu)
         return loss_e
 
@@ -324,7 +299,7 @@ class MECPECModel(nn.Module):
     def loss_pre_cau(self, pred_c, gold_c):
         uttr_len = pred_c.size(1)
         gold_c = gold_c[:, :uttr_len]
-        c_mask = gold_c != -1  # 为 -1 的位置为填充值
+        c_mask = gold_c != -1 
         pred_c = pred_c.squeeze(-1).masked_select(c_mask).cpu()
         true_c = gold_c.masked_select(c_mask).float().cpu()
         criterion = nn.BCEWithLogitsLoss(reduction='mean')
@@ -340,40 +315,7 @@ class MECPECModel(nn.Module):
         couples_pred = couples_pred.masked_select(couples_mask)
         loss_couple = focal_loss_bce(couples_pred, couples_true, alpha=1, gamma=2, reduction='mean')
         return loss_couple
-    # def loss_pre_emo(self, pred_e, gold_e):
-    #     uttr_len = pred_e.size(1)
-    #     # 这里进行截断
-    #     gold_e = gold_e[:,:uttr_len]
-    #     gold_e = gold_e[:,:uttr_len]-1 # 计算时还是要从0-6
-    #     # 该行代码可能导致计算的不确定性，影响可复现性
-    #     # 将预测和标签移至CPU
-    #     pred_e_cpu = pred_e.permute(0, 2, 1).cpu()
-    #     gold_e_cpu = gold_e.cpu()
-    #     criterion = nn.CrossEntropyLoss(reduction='mean', ignore_index=-1) # 为-1的值被忽略
-    #     loss_e = criterion(pred_e_cpu, gold_e_cpu)
-    #     return loss_e
 
-    # def loss_pre_cau(self, pred_c, gold_c):
-    #     uttr_len = pred_c.size(1)
-    #     # 这里进行截断
-    #     gold_c = gold_c[:,:uttr_len]
-    #     c_mask = gold_c != -1  # 为 -1 的位置为填充值
-    #     pred_c = pred_c.squeeze(-1).masked_select(c_mask).cpu()
-    #     true_c = gold_c.masked_select(c_mask).float().cpu()
-    #     criterion = nn.BCEWithLogitsLoss(reduction='mean')
-    #     loss_c = criterion(pred_c, true_c)
-    #     return loss_c
-
-
-    # def loss_pre_ec(self, couples_pred, emo_cau_pos, ec_pair, uttr_mask, test = False):
-    #     couples_true, couples_mask = self.truncate_ec_pairs(couples_pred, emo_cau_pos, ec_pair, uttr_mask, test)
-    #     couples_mask = torch.BoolTensor(couples_mask).to(DEVICE)
-    #     couples_true = torch.FloatTensor(couples_true).to(DEVICE)
-    #     criterion = nn.BCEWithLogitsLoss(reduction='mean')
-    #     couples_true = couples_true.masked_select(couples_mask)
-    #     couples_pred = couples_pred.masked_select(couples_mask)
-    #     loss_couple = criterion(couples_pred, couples_true)
-    #     return loss_couple
 
     def truncate_ec_pairs(self, couples_pred, emo_cau_pos, ec_pair, uttr_mask, test=False):
         batch, n_couple = couples_pred.size()
@@ -381,11 +323,11 @@ class MECPECModel(nn.Module):
         for i in range(batch):
             uttr_mask_i = uttr_mask[i]
             uttr_len = uttr_mask_i.sum().item()
-            uttr_couples_i = ec_pair[i] # 该对话的真实配对
+            uttr_couples_i = ec_pair[i] 
             couples_true_i = []
             couples_mask_i = []
-            for couple_idx, emo_cau in enumerate(emo_cau_pos): # 对每个笛卡尔积后的情绪原因配对（经过截断后的），但是经过batch的padding后，可能有一些配对是无效的
-                if emo_cau[0] > uttr_len or emo_cau[1] > uttr_len: # 情绪idx或者原因idx如果超出了该对话的长度
+            for couple_idx, emo_cau in enumerate(emo_cau_pos): 
+                if emo_cau[0] > uttr_len or emo_cau[1] > uttr_len: 
                     couples_mask_i.append(0) 
                     couples_true_i.append(0)
                 else:
