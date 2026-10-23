@@ -1,8 +1,6 @@
 # CARE-HG
 
-**Debiased Causal Reasoning Hypergraphs for Multimodal Emotion-Cause Pair Extraction in Conversations**
-
-This repository contains the source code for CARE-HG. The framework uses context and prior hypergraphs to model utterance-level relations, then combines factual and counterfactual branches for emotion, cause, and emotion-cause pair prediction. At inference time, the current implementation debiases emotion scores by subtracting counterfactual logits from factual logits.
+**Debiased Causal Reasoning Hypergraphs for Multimodal Emotion-Cause Pair Extraction in Conversations (CARE-HG)** uses context and prior hypergraphs to model utterance-level relations, then combines factual and counterfactual branches to predict emotions, causes, and emotion-cause pairs. At inference time, it debiases emotion scores by subtracting counterfactual logits from factual logits.
 
 ## 🧠 Method Overview
 
@@ -12,26 +10,24 @@ This repository contains the source code for CARE-HG. The framework uses context
 
 ## 🛠️ Environment
 
-The repository does not include a requirements file or a pinned Python, PyTorch, Transformers, or CUDA environment. The following is a starting point; choose PyTorch and DGL builds that match each other and your CUDA runtime.
 
 ~~~bash
 conda create -n care-hg python=3.10 -y
 conda activate care-hg
 
-# Install the PyTorch build for your operating system and compute platform:
+# PyTorch installation guide:
 # https://pytorch.org/get-started/locally/
 
-# Install DGL for the selected PyTorch/CUDA combination:
+# DGL installation guide:
 # https://www.dgl.ai/pages/start.html
 
 pip install numpy scipy scikit-learn pyyaml tqdm wandb tensorboardX transformers
 ~~~
 
-The checked-in Python files import PyTorch, DGL, Transformers, NumPy, SciPy, scikit-learn, PyYAML, tqdm, Weights & Biases, and tensorboardX. Exact package versions should be recorded when a verified environment is available.
 
 ## 🚀 Training
 
-Set the dataset and pretrained model paths in `config.yaml`. The example below enables training and skips test-set evaluation. The training path still constructs a validation loader, so `eval_batch_size` is used during training.
+Set the dataset and pretrained model paths in `config.yaml`.
 
 ~~~yaml
 data_dir: data
