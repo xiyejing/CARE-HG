@@ -6,23 +6,9 @@ This repository contains the source code for CARE-HG. The framework uses context
 
 ## Method overview
 
-~~~mermaid
-flowchart LR
-    A[Dialogue text, audio, video] --> B[Utterance representations]
-    B --> C[Context hypergraph]
-    D[LLM-derived prior knowledge] --> E[Prior hypergraph]
-    C --> F[Factual branch]
-    E --> F
-    C --> G[Counterfactual branch]
-    E --> G
-    F --> H[Emotion, cause, and EC-pair predictions]
-    G --> I[Counterfactual emotion scores]
-    H --> J[Debiased emotion scores]
-    I --> J
-    J --> K[Emotion prediction]
-~~~
-
-The overview follows the supplied framework figure. The repository snapshot does not currently include that image as a tracked asset.
+<p align="center">
+  <img src="assets/framework.png" alt="CARE-HG framework" width="100%">
+</p>
 
 ## Repository layout
 
