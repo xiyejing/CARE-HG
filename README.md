@@ -8,6 +8,10 @@ Yejing Xi, Wenlong Dong, Qinglin Chang, and Qirong Mao
   <img src="assets/framework.png" alt="CARE-HG framework" width="100%">
 </p>
 
+## 📢 News
+
+- Our paper has been accepted to ACM Multimedia 2026. 🎉
+
 ## 🛠️ Environment
 
 
