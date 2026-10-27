@@ -1,8 +1,8 @@
 # CARE-HG
 
-**Debiased Causal Reasoning Hypergraphs for Multimodal Emotion-Cause Pair Extraction in Conversations (CARE-HG)** uses context and prior hypergraphs to model utterance-level relations, then combines factual and counterfactual branches to predict emotions, causes, and emotion-cause pairs. At inference time, it debiases emotion scores by subtracting counterfactual logits from factual logits.
+**Debiased Causal Reasoning Hypergraphs for Multimodal Emotion-Cause Pair Extraction in Conversations**
 
-## 🧠 Method Overview
+> CARE-HG models utterance-level relations with context and prior hypergraphs, then combines factual and counterfactual branches to predict emotions, causes, and emotion-cause pairs. At inference time, it debiases emotion scores by subtracting counterfactual logits from factual logits.
 
 <p align="center">
   <img src="assets/framework.png" alt="CARE-HG framework" width="100%">
@@ -58,3 +58,4 @@ Save this configuration as `config.yaml`, then start training:
 ~~~bash
 python run.py --config_file config.yaml
 ~~~
+
